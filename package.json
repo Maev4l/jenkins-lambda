@@ -1,0 +1,15 @@
+{
+  "name": "jenkins-lambda",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "build": "docker buildx build --platform linux/amd64 -t jenkins-lambda . && docker tag jenkins-lambda 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda && docker image prune --force",
+    "push": "aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 671123374425.dkr.ecr.eu-central-1.amazonaws.com && docker push 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda",
+    "deploy": "serverless deploy"
+  },
+  "devDependencies": {
+    "serverless": "3.36.0",
+    "serverless-domain-manager": "7.1.2"
+  }
+}

@@ -1,0 +1,118 @@
+service: jenkins-lambda
+
+plugins:
+  - serverless-domain-manager
+
+provider:
+  name: aws
+  architecture: x86_64
+  versionFunctions: false
+  memorySize: 1024
+  logRetentionInDays: 7
+  region: eu-central-1
+  endpointType: REGIONAL
+  profile: serverless-admin-profile
+  stage: dev
+  apiGateway:
+    disableDefaultEndpoint: true
+    minimumCompressionSize: 1024 # in bytes
+  iam:
+    role: MyRole
+  tags:
+    application: "jenkins-lambda"
+    owner: "serverless"
+  stackTags:
+    application: "jenkins-lambda"
+    owner: "serverless"
+  deploymentBucket:
+    blockPublicAccess: true
+    tags:
+      application: "jenkins-lambda"
+      owner: "serverless"
+
+custom:
+  customDomain:
+    domainName: jenkinsci.isnan.eu
+    certificateArn: arn:aws:acm:eu-central-1:671123374425:certificate/8d1a300b-075e-4771-a7bd-c6dd00cb594f
+    hostedZoneId: ZWC66FN0XU6P9
+    stage: ${self:provider.stage}
+    autoDomain: true
+    createRoute53Record: true
+    endpointType: ${self:provider.endpointType}
+
+functions:
+  handle:
+    name: jenkins-lambda
+    image: 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda:latest
+    events:
+      - http:
+          path: /
+          method: post
+          cors: true
+
+resources:
+  Resources:
+    MyRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: jenkins-lambda-role
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: letsencrypt-lambda
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow # note that these rights are given in the default policy and are required if you want logs out of your lambda(s)
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                    - logs:TagResource
+                  Resource:
+                    - "Fn::Join":
+                        - ":"
+                        - - "arn:aws:logs"
+                          - Ref: "AWS::Region"
+                          - Ref: "AWS::AccountId"
+                          - "log-group:/aws/lambda/*:*:*"
+        Tags:
+          - Key: application
+            Value: jenkins-lambda
+          - Key: owner
+            Value: serverless
+    MyRepository:
+      Type: AWS::ECR::Repository
+      Properties:
+        RepositoryName: jenkins-lambda
+        EmptyOnDelete: true
+        LifecyclePolicy:
+          LifecyclePolicyText: |
+            {
+              "rules" : [
+                {
+                  "rulePriority" : 1,
+                  "description" : "Expire untagged images older than 3 days",
+                  "selection" : {
+                    "tagStatus" : "untagged",
+                    "countType" : "sinceImagePushed",
+                    "countUnit" : "days",
+                    "countNumber" : 3
+                  },
+                  "action" : {
+                    "type" : "expire"
+                  }
+                }
+              ]
+            }
+        Tags:
+          - Key: application
+            Value: jenkins-lambda
+          - Key: owner
+            Value: serverless
