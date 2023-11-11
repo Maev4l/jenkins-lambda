@@ -16,6 +16,13 @@ provider:
   apiGateway:
     disableDefaultEndpoint: true
     minimumCompressionSize: 1024 # in bytes
+    usagePlan:
+      quota:
+        limit: 1000
+        period: MONTH
+      throttle:
+        burstLimit: 20
+        rateLimit: 10
   iam:
     role: MyRole
   tags:
