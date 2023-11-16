@@ -72,6 +72,8 @@ COPY --from=jenkinsfilerunner-build /app/jenkins /app/jenkins
 COPY --from=jenkinsfilerunner-build /jenkinsfile-runner/app/target/appassembler /app
 COPY --from=jenkinsfilerunner-build /jenkinsfile-runner/vanilla-package/target/plugins /usr/share/jenkins/ref/plugins
 
+ENV PATH "/app/bin:${PATH}"
+
 # Install lambda handler
 COPY --from=golang /build/handler /handler
 

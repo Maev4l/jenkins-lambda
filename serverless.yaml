@@ -8,6 +8,7 @@ provider:
   architecture: x86_64
   versionFunctions: false
   memorySize: 1024
+  timeout: 30
   logRetentionInDays: 7
   region: eu-central-1
   endpointType: REGIONAL
