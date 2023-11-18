@@ -1,4 +1,4 @@
-service: jenkins-lambda
+service: jenkins-lambda-handler
 
 provider:
   name: aws
@@ -92,7 +92,7 @@ resources:
     GatewayRole:
       Type: AWS::IAM::Role
       Properties:
-        RoleName: jenkins-lambda-api-gw-role
+        RoleName: jenkins-lambda-handler-api-gw-role
         AssumeRolePolicyDocument:
           Version: "2012-10-17"
           Statement:
@@ -118,7 +118,7 @@ resources:
                           - Ref: "AWS::Region"
                           - Ref: "AWS::AccountId"
                           - ${self:custom.topicName}
-                - Effect: Allow #allow logging (not essential to the solution)
+                - Effect: Allow
                   Action:
                     - logs:PutLogEvents
                     - logs:CreateLogGroup
@@ -129,12 +129,32 @@ resources:
             Value: jenkins-lambda
           - Key: owner
             Value: serverless
+    GatewayAuthorizer:
+      Type: AWS::ApiGateway::Authorizer
+      Properties:
+        Name: jenkins-lambda-authorizer
+        RestApiId: !Ref Gateway
+        Type: REQUEST
+        AuthorizerUri:
+          Fn::Sub:
+            - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${authzArn}/invocations"
+            - authzArn:
+                Fn::ImportValue: JenkinsLambdaAuthorizerLambdaFunctionArn
+        IdentitySource: "method.request.header.X-Hub-Signature-256"
+    GatewayInvokeAuhorizer:
+      Type: AWS::Lambda::Permission
+      Properties:
+        Action: lambda:InvokeFunction
+        FunctionName: !ImportValue JenkinsLambdaAuthorizerLambdaFunctionArn
+        Principal: apigateway.amazonaws.com
+        SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Gateway}/*/*
     GatewayPostMethod:
       Type: AWS::ApiGateway::Method
       Properties:
-        AuthorizationType: NONE
+        AuthorizationType: CUSTOM
+        AuthorizerId: !Ref GatewayAuthorizer
         HttpMethod: POST
-        ResourceId: !GetAtt Gateway.RootResourceId #attaching the GET method to the root resource of the API
+        ResourceId: !GetAtt Gateway.RootResourceId #attaching the POST method to the root resource of the API
         RestApiId: !Ref Gateway
         Integration:
           Type: AWS

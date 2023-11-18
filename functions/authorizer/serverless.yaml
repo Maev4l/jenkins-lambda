@@ -1,0 +1,53 @@
+service: jenkins-lambda-authorizer
+
+plugins:
+  - serverless-go-plugin
+
+provider:
+  name: aws
+  architecture: arm64
+  runtime: provided.al2
+  region: eu-central-1
+  iam:
+    role:
+      name: jenkins-lambda-authorizer
+  versionFunctions: false
+  memorySize: 128
+  profile: serverless-admin-profile
+  tags:
+    application: "jenkins-lambda"
+    owner: "serverless"
+  stackTags:
+    application: "jenkins-lambda"
+    owner: "serverless"
+  deploymentBucket:
+    blockPublicAccess: true
+    tags:
+      application: "jenkins-lambda"
+      owner: "serverless"
+
+custom:
+  go:
+    supportedRuntimes: provided.al2
+    buildProvidedRuntimeAsBootstrap: true
+    cmd: GOARCH=arm64 GOOS=linux go build -ldflags="-s -w"
+
+functions:
+  Authorizer:
+    name: jenkins-lambda-authorizer
+    handler: cmd/main.go
+
+resources:
+  Outputs:
+    ## Output the authorizer function ARN and id so it can be cross-references in the handler service definition
+    AuthorizerLambdaFunctionArn:
+      Description: ARN of jenkins-lambda-authorizer function
+      Value: !GetAtt AuthorizerLambdaFunction.Arn
+      Export:
+        Name: JenkinsLambdaAuthorizerLambdaFunctionArn
+    AuthorizerLambdaFunctionId:
+      Description: Id of jenkins-lambda-authorizer function
+      Value:
+        Ref: AuthorizerLambdaFunction
+      Export:
+        Name: JenkinsLambdaAuthorizerLambdaFunctionId

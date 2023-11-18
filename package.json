@@ -6,9 +6,14 @@
   "scripts": {
     "build-handler": "docker buildx build --platform linux/amd64 -t jenkins-lambda/handler functions/handler/. && docker tag jenkins-lambda/handler 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler && docker image prune --force",
     "push-handler": "aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 671123374425.dkr.ecr.eu-central-1.amazonaws.com && docker push 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler",
-    "deploy": "serverless deploy"
+    "deploy-handler": "sls deploy --service=handler --verbose",
+    "remove-handler": "sls remove --service=handler --verbose",
+    "deploy-authorizer": "sls deploy --service=authorizer --verbose",
+    "remove-authorizer": "sls remove --service=authorizer --verbose"
   },
   "devDependencies": {
-    "serverless": "3.36.0"
+    "@serverless/compose": "1.3.0",
+    "serverless": "3.36.0",
+    "serverless-go-plugin": "2.2.0"
   }
 }
