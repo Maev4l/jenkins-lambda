@@ -1,4 +1,4 @@
-module isnan.eu/jenkins/lambda
+module isnan.eu/jenkins/lambda/handler
 
 go 1.21.4
 

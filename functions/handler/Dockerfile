@@ -36,10 +36,9 @@ FROM node:${NODE_VERSION}-alpine3.18 as node
 
 FROM golang:${GOLANG_VERSION}-alpine3.18 as golang
 WORKDIR /build
-COPY function/go.mod function/go.sum ./
-COPY function/cmd/main.go ./
+COPY go.mod go.sum ./
+COPY cmd/main.go ./
 RUN GOOS=linux go build -ldflags="-s -w" -o handler main.go
-
 
 
 FROM alpine:3.18.4

@@ -1,31 +1,12 @@
 service: jenkins-lambda
 
-plugins:
-  - serverless-domain-manager
-
 provider:
   name: aws
-  architecture: x86_64
   versionFunctions: false
-  memorySize: 1024
-  timeout: 30
   logRetentionInDays: 7
   region: eu-central-1
   endpointType: REGIONAL
   profile: serverless-admin-profile
-  stage: dev
-  apiGateway:
-    disableDefaultEndpoint: true
-    minimumCompressionSize: 1024 # in bytes
-    usagePlan:
-      quota:
-        limit: 1000
-        period: MONTH
-      throttle:
-        burstLimit: 20
-        rateLimit: 10
-  iam:
-    role: MyRole
   tags:
     application: "jenkins-lambda"
     owner: "serverless"
@@ -39,30 +20,30 @@ provider:
       owner: "serverless"
 
 custom:
-  customDomain:
-    domainName: jenkinsci.isnan.eu
-    certificateArn: arn:aws:acm:eu-central-1:671123374425:certificate/8d1a300b-075e-4771-a7bd-c6dd00cb594f
-    hostedZoneId: ZWC66FN0XU6P9
-    stage: ${self:provider.stage}
-    autoDomain: true
-    createRoute53Record: true
-    endpointType: ${self:provider.endpointType}
+  topicName: github-webhook-events
+  hostedZoneId: ZWC66FN0XU6P9
+  certificateArn: arn:aws:acm:eu-central-1:671123374425:certificate/8d1a300b-075e-4771-a7bd-c6dd00cb594f
+  domainName: jenkinsci.isnan.eu
+  stageName: dev
 
 functions:
-  handle:
-    name: jenkins-lambda
-    image: 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda:latest
+  Handler:
+    name: jenkins-lambda-handler
+    image: 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler:latest
+    role: HandlerRole
+    architecture: x86_64
+    memorySize: 1024
+    timeout: 600
     events:
-      - http:
-          path: /
-          method: post
+      - sns:
+          topicName: ${self:custom.topicName}
 
 resources:
   Resources:
-    MyRole:
+    HandlerRole:
       Type: AWS::IAM::Role
       Properties:
-        RoleName: jenkins-lambda-role
+        RoleName: jenkins-lambda-handler-role
         AssumeRolePolicyDocument:
           Version: "2012-10-17"
           Statement:
@@ -72,7 +53,7 @@ resources:
                   - lambda.amazonaws.com
               Action: sts:AssumeRole
         Policies:
-          - PolicyName: letsencrypt-lambda
+          - PolicyName: jenkins-lambda-handler
             PolicyDocument:
               Version: "2012-10-17"
               Statement:
@@ -94,30 +75,184 @@ resources:
             Value: jenkins-lambda
           - Key: owner
             Value: serverless
-    MyRepository:
-      Type: AWS::ECR::Repository
+    Gateway:
+      Type: AWS::ApiGateway::RestApi
       Properties:
-        RepositoryName: jenkins-lambda
-        EmptyOnDelete: true
-        LifecyclePolicy:
-          LifecyclePolicyText: |
-            {
-              "rules" : [
-                {
-                  "rulePriority" : 1,
-                  "description" : "Expire untagged images older than 3 days",
-                  "selection" : {
-                    "tagStatus" : "untagged",
-                    "countType" : "sinceImagePushed",
-                    "countUnit" : "days",
-                    "countNumber" : 3
-                  },
-                  "action" : {
-                    "type" : "expire"
-                  }
-                }
-              ]
-            }
+        Name: "${self:custom.stageName}-${self:service}"
+        EndpointConfiguration:
+          Types:
+            - REGIONAL
+        DisableExecuteApiEndpoint: true
+        MinimumCompressionSize: 1024
+        Tags:
+          - Key: application
+            Value: jenkins-lambda
+          - Key: owner
+            Value: serverless
+    GatewayRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: jenkins-lambda-api-gw-role
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - apigateway.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Path: "/"
+        Policies:
+          - PolicyName: lambda-jenkins-gateway
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - sns:Publish
+                  Resource:
+                    - "Fn::Join":
+                        - ":"
+                        - - "arn:aws:sns"
+                          - Ref: "AWS::Region"
+                          - Ref: "AWS::AccountId"
+                          - ${self:custom.topicName}
+                - Effect: Allow #allow logging (not essential to the solution)
+                  Action:
+                    - logs:PutLogEvents
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                  Resource: "*"
+        Tags:
+          - Key: application
+            Value: jenkins-lambda
+          - Key: owner
+            Value: serverless
+    GatewayPostMethod:
+      Type: AWS::ApiGateway::Method
+      Properties:
+        AuthorizationType: NONE
+        HttpMethod: POST
+        ResourceId: !GetAtt Gateway.RootResourceId #attaching the GET method to the root resource of the API
+        RestApiId: !Ref Gateway
+        Integration:
+          Type: AWS
+          Credentials: !GetAtt GatewayRole.Arn
+          PassthroughBehavior: WHEN_NO_TEMPLATES
+          Uri: #required URI for using SNS service (use Path override)
+            Fn::Join:
+              - ""
+              - - "arn:aws:apigateway:"
+                - Ref: AWS::Region
+                - ":sns:path//"
+          IntegrationHttpMethod: POST
+          RequestTemplates:
+            "application/json":
+              Fn::Join:
+                - ""
+                - - "#set($topic='"
+                  - Fn::Join:
+                      - ":"
+                      - - "arn:aws:sns"
+                        - Ref: AWS::Region
+                        - Ref: AWS::AccountId
+                        - ${self:custom.topicName}
+                  - "')\n"
+                  - "#set($message=$input.body)\n"
+                  - "Action=Publish&TopicArn=$util.urlEncode($topic)&Message=$util.urlEncode($message)"
+          RequestParameters:
+            integration.request.header.Content-Type: "'application/x-www-form-urlencoded'"
+          IntegrationResponses: #map all responses to a default response.
+            - StatusCode: 200
+              ResponseTemplates: #default response
+                application/json: '{"status":"OK"}'
+        MethodResponses:
+          - StatusCode: 200
+    GatewayDeployment:
+      Type: AWS::ApiGateway::Deployment
+      DependsOn:
+        - GatewayPostMethod
+      Properties:
+        RestApiId: !Ref Gateway
+        StageName: ${self:custom.stageName}
+        StageDescription:
+          #DataTraceEnabled: True
+          #LoggingLevel: INFO
+          AccessLogSetting:
+            DestinationArn: !GetAtt GatewayLogGroup.Arn
+            Format: !Sub '{
+              "requestId": "$context.requestId",
+              "path": "$context.path",
+              "requestTime": "$context.requestTime",
+              "httpMethod": "$context.httpMethod",
+              "statusCode": "$context.status",
+              "ip": "$context.identity.sourceIp",
+              "errorMessage": "$context.error.message"
+              }'
+    UsagePlan:
+      Type: AWS::ApiGateway::UsagePlan
+      DependsOn:
+        - GatewayDeployment
+      Properties:
+        UsagePlanName: ${self:service}-usage-plan
+        ApiStages:
+          - ApiId: !Ref Gateway
+            Stage: ${self:custom.stageName}
+        Quota:
+          Limit: 100
+          Period: MONTH
+        Throttle:
+          BurstLimit: 20
+          RateLimit: 10
+        Tags:
+          - Key: application
+            Value: jenkins-lambda
+          - Key: owner
+            Value: serverless
+    DomainName:
+      Type: AWS::ApiGateway::DomainName
+      Properties:
+        RegionalCertificateArn: ${self:custom.certificateArn}
+        DomainName: ${self:custom.domainName}
+        SecurityPolicy: TLS_1_2
+        EndpointConfiguration:
+          Types:
+            - REGIONAL
+        Tags:
+          - Key: application
+            Value: jenkins-lambda
+          - Key: owner
+            Value: serverless
+    ApiBasePathMapping:
+      Type: AWS::ApiGateway::BasePathMapping
+      DependsOn:
+        - Gateway
+        - GatewayDeployment
+      Properties:
+        DomainName: !Ref DomainName
+        RestApiId: !Ref Gateway
+        Stage: ${self:custom.stageName}
+    RecordSetGroup:
+      Type: AWS::Route53::RecordSetGroup
+      Properties:
+        HostedZoneId: ${self:custom.hostedZoneId}
+        RecordSets:
+          - Name: ${self:custom.domainName}
+            Type: A
+            AliasTarget:
+              HostedZoneId: !GetAtt DomainName.RegionalHostedZoneId
+              DNSName: !GetAtt DomainName.RegionalDomainName
+          - Name: ${self:custom.domainName}
+            Type: AAAA
+            AliasTarget:
+              HostedZoneId: !GetAtt DomainName.RegionalHostedZoneId
+              DNSName: !GetAtt DomainName.RegionalDomainName
+    GatewayLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/api-gw/jenkins-lambda
+        RetentionInDays: ${self:provider.logRetentionInDays}
         Tags:
           - Key: application
             Value: jenkins-lambda

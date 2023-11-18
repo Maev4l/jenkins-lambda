@@ -4,12 +4,11 @@
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "build": "docker buildx build --platform linux/amd64 -t jenkins-lambda . && docker tag jenkins-lambda 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda && docker image prune --force",
-    "push": "aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 671123374425.dkr.ecr.eu-central-1.amazonaws.com && docker push 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda",
+    "build-handler": "docker buildx build --platform linux/amd64 -t jenkins-lambda/handler functions/handler/. && docker tag jenkins-lambda/handler 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler && docker image prune --force",
+    "push-handler": "aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 671123374425.dkr.ecr.eu-central-1.amazonaws.com && docker push 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler",
     "deploy": "serverless deploy"
   },
   "devDependencies": {
-    "serverless": "3.36.0",
-    "serverless-domain-manager": "7.1.2"
+    "serverless": "3.36.0"
   }
 }
