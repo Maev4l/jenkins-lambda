@@ -59,10 +59,12 @@ COPY --from=node /usr/local/bin /usr/local/bin
 COPY --from=node /opt /opt 
 
 # Install Jenkins
-ENV JAVA_OPTS "--illegal-access=permit $JAVAOPTS"
+ENV JAVA_OPTS "--illegal-access=permit $JAVA_OPTS"
 ENV JENKINS_UC https://updates.jenkins.io
 ENV CASC_JENKINS_CONFIG /usr/share/jenkins/ref/casc
 
+# the line below is for the Jenkins workspace temp folder
+RUN mkdir -p /tmp/temp && chmod 777 /tmp/temp 
 RUN mkdir -p /app /usr/share/jenkins/ref/plugins /usr/share/jenkins/ref/casc /app/bin \
     && echo "jenkins: {}" >/usr/share/jenkins/ref/casc/jenkins.yaml
 

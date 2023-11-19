@@ -2,17 +2,31 @@ service: jenkins-lambda-authorizer
 
 plugins:
   - serverless-go-plugin
+  - serverless-domain-manager
 
 provider:
   name: aws
   architecture: arm64
   runtime: provided.al2
   region: eu-central-1
-  iam:
-    role:
-      name: jenkins-lambda-authorizer
+  endpointType: REGIONAL
   versionFunctions: false
   memorySize: 128
+  stage: dev
+  apiGateway:
+    disableDefaultEndpoint: true
+    minimumCompressionSize: 1024 # in bytes
+    usagePlan:
+      quota:
+        limit: 100
+        period: MONTH
+      throttle:
+        burstLimit: 20
+        rateLimit: 10
+  logs:
+    restApi:
+      role: arn:aws:iam::671123374425:role/api-gw-cloudwatch-role
+  logRetentionInDays: 7
   profile: serverless-admin-profile
   tags:
     application: "jenkins-lambda"
@@ -27,6 +41,16 @@ provider:
       owner: "serverless"
 
 custom:
+  topicName: github-webhook-events
+  hostedZoneId: ZWC66FN0XU6P9
+  customDomain:
+    domainName: jenkinsci.isnan.eu
+    certificateArn: arn:aws:acm:eu-central-1:671123374425:certificate/8d1a300b-075e-4771-a7bd-c6dd00cb594f
+    hostedZoneId: ${self:custom.hostedZoneId}
+    stage: ${self:provider.stage}
+    autoDomain: true
+    createRoute53Record: true
+    endpointType: ${self:provider.endpointType}
   go:
     supportedRuntimes: provided.al2
     buildProvidedRuntimeAsBootstrap: true
@@ -36,18 +60,77 @@ functions:
   Authorizer:
     name: jenkins-lambda-authorizer
     handler: cmd/main.go
-
+    role: AuthorizerRole
+    events:
+      - http:
+          path: /
+          method: post
+    environment:
+      GITHUB_WEBHOOK_SECRET: ${ssm:github.webhook.secret}
+      TOPIC_ARN:
+        Ref: WebhookEventsTopic
 resources:
+  Resources:
+    AuthorizerRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: jenkins-lambda-authorizer-role
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: jenkins-lambda-authorizer
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow # note that these rights are given in the default policy and are required if you want logs out of your lambda(s)
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                    - logs:TagResource
+                  Resource:
+                    - "Fn::Join":
+                        - ":"
+                        - - "arn:aws:logs"
+                          - Ref: "AWS::Region"
+                          - Ref: "AWS::AccountId"
+                          - "log-group:/aws/lambda/*:*:*"
+                - Effect: Allow
+                  Action: sns:Publish
+                  Resource:
+                    - Ref: WebhookEventsTopic
+        Tags:
+          - Key: application
+            Value: jenkins-lambda
+          - Key: owner
+            Value: serverless
+    WebhookEventsTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:custom.topicName}
+        DisplayName: ${self:custom.topicName}
+        FifoTopic: False
+        Tags:
+          - Key: application
+            Value: jenkins-lambda
+          - Key: owner
+            Value: serverless
   Outputs:
-    ## Output the authorizer function ARN and id so it can be cross-references in the handler service definition
-    AuthorizerLambdaFunctionArn:
-      Description: ARN of jenkins-lambda-authorizer function
-      Value: !GetAtt AuthorizerLambdaFunction.Arn
-      Export:
-        Name: JenkinsLambdaAuthorizerLambdaFunctionArn
-    AuthorizerLambdaFunctionId:
-      Description: Id of jenkins-lambda-authorizer function
+    ## Output the SNS topic ARN and name it can be cross-references in the handler service definition
+    WebhookEventsTopicArn:
+      Description: ARN of SNS topic
       Value:
-        Ref: AuthorizerLambdaFunction
+        Ref: WebhookEventsTopic
       Export:
-        Name: JenkinsLambdaAuthorizerLambdaFunctionId
+        Name: WebhookEventsTopicArn
+    WebhookEventsTopicName:
+      Description: Name of SNS topic
+      Value: !GetAtt WebhookEventsTopic.TopicName
+      Export:
+        Name: WebhookEventsTopicName

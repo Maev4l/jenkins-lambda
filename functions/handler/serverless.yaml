@@ -6,6 +6,7 @@ provider:
   logRetentionInDays: 7
   region: eu-central-1
   endpointType: REGIONAL
+  stage: dev
   profile: serverless-admin-profile
   tags:
     application: "jenkins-lambda"
@@ -21,10 +22,6 @@ provider:
 
 custom:
   topicName: github-webhook-events
-  hostedZoneId: ZWC66FN0XU6P9
-  certificateArn: arn:aws:acm:eu-central-1:671123374425:certificate/8d1a300b-075e-4771-a7bd-c6dd00cb594f
-  domainName: jenkinsci.isnan.eu
-  stageName: dev
 
 functions:
   Handler:
@@ -32,11 +29,12 @@ functions:
     image: 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler:latest
     role: HandlerRole
     architecture: x86_64
-    memorySize: 1024
-    timeout: 600
+    memorySize: 2048
+    timeout: 900
     events:
       - sns:
-          topicName: ${self:custom.topicName}
+          arn: !ImportValue WebhookEventsTopicArn
+          topicName: ${self:custom.topicName} # it seems serverless framework cannot accept an !ImportValue here
 
 resources:
   Resources:
@@ -70,209 +68,6 @@ resources:
                           - Ref: "AWS::Region"
                           - Ref: "AWS::AccountId"
                           - "log-group:/aws/lambda/*:*:*"
-        Tags:
-          - Key: application
-            Value: jenkins-lambda
-          - Key: owner
-            Value: serverless
-    Gateway:
-      Type: AWS::ApiGateway::RestApi
-      Properties:
-        Name: "${self:custom.stageName}-${self:service}"
-        EndpointConfiguration:
-          Types:
-            - REGIONAL
-        DisableExecuteApiEndpoint: true
-        MinimumCompressionSize: 1024
-        Tags:
-          - Key: application
-            Value: jenkins-lambda
-          - Key: owner
-            Value: serverless
-    GatewayRole:
-      Type: AWS::IAM::Role
-      Properties:
-        RoleName: jenkins-lambda-handler-api-gw-role
-        AssumeRolePolicyDocument:
-          Version: "2012-10-17"
-          Statement:
-            - Effect: Allow
-              Principal:
-                Service:
-                  - apigateway.amazonaws.com
-              Action:
-                - sts:AssumeRole
-        Path: "/"
-        Policies:
-          - PolicyName: lambda-jenkins-gateway
-            PolicyDocument:
-              Version: "2012-10-17"
-              Statement:
-                - Effect: Allow
-                  Action:
-                    - sns:Publish
-                  Resource:
-                    - "Fn::Join":
-                        - ":"
-                        - - "arn:aws:sns"
-                          - Ref: "AWS::Region"
-                          - Ref: "AWS::AccountId"
-                          - ${self:custom.topicName}
-                - Effect: Allow
-                  Action:
-                    - logs:PutLogEvents
-                    - logs:CreateLogGroup
-                    - logs:CreateLogStream
-                  Resource: "*"
-        Tags:
-          - Key: application
-            Value: jenkins-lambda
-          - Key: owner
-            Value: serverless
-    GatewayAuthorizer:
-      Type: AWS::ApiGateway::Authorizer
-      Properties:
-        Name: jenkins-lambda-authorizer
-        RestApiId: !Ref Gateway
-        Type: REQUEST
-        AuthorizerUri:
-          Fn::Sub:
-            - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${authzArn}/invocations"
-            - authzArn:
-                Fn::ImportValue: JenkinsLambdaAuthorizerLambdaFunctionArn
-        IdentitySource: "method.request.header.X-Hub-Signature-256"
-    GatewayInvokeAuhorizer:
-      Type: AWS::Lambda::Permission
-      Properties:
-        Action: lambda:InvokeFunction
-        FunctionName: !ImportValue JenkinsLambdaAuthorizerLambdaFunctionArn
-        Principal: apigateway.amazonaws.com
-        SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Gateway}/*/*
-    GatewayPostMethod:
-      Type: AWS::ApiGateway::Method
-      Properties:
-        AuthorizationType: CUSTOM
-        AuthorizerId: !Ref GatewayAuthorizer
-        HttpMethod: POST
-        ResourceId: !GetAtt Gateway.RootResourceId #attaching the POST method to the root resource of the API
-        RestApiId: !Ref Gateway
-        Integration:
-          Type: AWS
-          Credentials: !GetAtt GatewayRole.Arn
-          PassthroughBehavior: WHEN_NO_TEMPLATES
-          Uri: #required URI for using SNS service (use Path override)
-            Fn::Join:
-              - ""
-              - - "arn:aws:apigateway:"
-                - Ref: AWS::Region
-                - ":sns:path//"
-          IntegrationHttpMethod: POST
-          RequestTemplates:
-            "application/json":
-              Fn::Join:
-                - ""
-                - - "#set($topic='"
-                  - Fn::Join:
-                      - ":"
-                      - - "arn:aws:sns"
-                        - Ref: AWS::Region
-                        - Ref: AWS::AccountId
-                        - ${self:custom.topicName}
-                  - "')\n"
-                  - "#set($message=$input.body)\n"
-                  - "Action=Publish&TopicArn=$util.urlEncode($topic)&Message=$util.urlEncode($message)"
-          RequestParameters:
-            integration.request.header.Content-Type: "'application/x-www-form-urlencoded'"
-          IntegrationResponses: #map all responses to a default response.
-            - StatusCode: 200
-              ResponseTemplates: #default response
-                application/json: '{"status":"OK"}'
-        MethodResponses:
-          - StatusCode: 200
-    GatewayDeployment:
-      Type: AWS::ApiGateway::Deployment
-      DependsOn:
-        - GatewayPostMethod
-      Properties:
-        RestApiId: !Ref Gateway
-        StageName: ${self:custom.stageName}
-        StageDescription:
-          #DataTraceEnabled: True
-          #LoggingLevel: INFO
-          AccessLogSetting:
-            DestinationArn: !GetAtt GatewayLogGroup.Arn
-            Format: !Sub '{
-              "requestId": "$context.requestId",
-              "path": "$context.path",
-              "requestTime": "$context.requestTime",
-              "httpMethod": "$context.httpMethod",
-              "statusCode": "$context.status",
-              "ip": "$context.identity.sourceIp",
-              "errorMessage": "$context.error.message"
-              }'
-    UsagePlan:
-      Type: AWS::ApiGateway::UsagePlan
-      DependsOn:
-        - GatewayDeployment
-      Properties:
-        UsagePlanName: ${self:service}-usage-plan
-        ApiStages:
-          - ApiId: !Ref Gateway
-            Stage: ${self:custom.stageName}
-        Quota:
-          Limit: 100
-          Period: MONTH
-        Throttle:
-          BurstLimit: 20
-          RateLimit: 10
-        Tags:
-          - Key: application
-            Value: jenkins-lambda
-          - Key: owner
-            Value: serverless
-    DomainName:
-      Type: AWS::ApiGateway::DomainName
-      Properties:
-        RegionalCertificateArn: ${self:custom.certificateArn}
-        DomainName: ${self:custom.domainName}
-        SecurityPolicy: TLS_1_2
-        EndpointConfiguration:
-          Types:
-            - REGIONAL
-        Tags:
-          - Key: application
-            Value: jenkins-lambda
-          - Key: owner
-            Value: serverless
-    ApiBasePathMapping:
-      Type: AWS::ApiGateway::BasePathMapping
-      DependsOn:
-        - Gateway
-        - GatewayDeployment
-      Properties:
-        DomainName: !Ref DomainName
-        RestApiId: !Ref Gateway
-        Stage: ${self:custom.stageName}
-    RecordSetGroup:
-      Type: AWS::Route53::RecordSetGroup
-      Properties:
-        HostedZoneId: ${self:custom.hostedZoneId}
-        RecordSets:
-          - Name: ${self:custom.domainName}
-            Type: A
-            AliasTarget:
-              HostedZoneId: !GetAtt DomainName.RegionalHostedZoneId
-              DNSName: !GetAtt DomainName.RegionalDomainName
-          - Name: ${self:custom.domainName}
-            Type: AAAA
-            AliasTarget:
-              HostedZoneId: !GetAtt DomainName.RegionalHostedZoneId
-              DNSName: !GetAtt DomainName.RegionalDomainName
-    GatewayLogGroup:
-      Type: AWS::Logs::LogGroup
-      Properties:
-        LogGroupName: /aws/api-gw/jenkins-lambda
-        RetentionInDays: ${self:provider.logRetentionInDays}
         Tags:
           - Key: application
             Value: jenkins-lambda

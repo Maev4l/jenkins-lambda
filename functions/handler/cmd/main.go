@@ -14,9 +14,10 @@ import (
 )
 
 var (
-	TMPDIR         = "/tmp"
-	WORKDIR        = fmt.Sprintf("%s/workspace", TMPDIR)
-	JENKINSHOMEDIR = fmt.Sprintf("%s/jenkinshome", TMPDIR)
+	TMPDIR          = "/tmp"
+	WORKDIR         = fmt.Sprintf("%s/workspace", TMPDIR)
+	JENKINSHOMEDIR  = fmt.Sprintf("%s/jenkinshome", TMPDIR)
+	RUNWORKSPACEDIR = fmt.Sprintf("%s/temp", TMPDIR)
 )
 
 func handler(ctx context.Context, event events.SNSEvent) {
@@ -34,9 +35,6 @@ func handler(ctx context.Context, event events.SNSEvent) {
 		log.Error(err.Error())
 		return
 	}
-
-	log.Info("Job finished")
-
 }
 
 func handleRequest(githubPayload string) error {
@@ -53,20 +51,22 @@ func handleRequest(githubPayload string) error {
 		return errors.New("'repository.clone_url' or after fields not present in payload")
 	}
 
-	log.Infof("Cloning %s@%s", cloneUrl, commit)
+	log.Infof("Cloning %s@%s ...", cloneUrl, commit)
 
 	err := gitClone(cloneUrl.String(), commit.String())
 	if err != nil {
 		return err
 	}
 
-	log.Info("Clone succeeded")
+	log.Info("Clone succeeded.")
 
+	log.Info("Running Jenkinsfile ...")
 	err = runJenkinsFile()
 	if err != nil {
 		return err
 	}
 
+	log.Info("Job completed.")
 	return nil
 }
 
@@ -113,18 +113,21 @@ func runJenkinsFile() error {
 		"--file",
 		fmt.Sprintf("%s/Jenkinsfile", WORKDIR),
 		"--runWorkspace",
-		TMPDIR,
+		RUNWORKSPACEDIR,
 		"--jenkinsHome",
 		JENKINSHOMEDIR,
 	)
 	cmd.Dir = WORKDIR
 
+	log.Infof("Command: %s", cmd.String())
+
 	out, err := cmd.CombinedOutput()
+	fmt.Printf("%s", string(out))
+
 	if err != nil {
-		return fmt.Errorf("failed to execute command '%s': %s", cmd.String(), string(out))
-	} else {
-		log.Infof("%s", string(out))
+		return err
 	}
+
 	return nil
 }
 
