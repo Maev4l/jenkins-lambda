@@ -4,7 +4,7 @@
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "build-handler": "docker buildx build --platform linux/amd64 -t jenkins-lambda/handler functions/handler/. && docker tag jenkins-lambda/handler 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler && docker image prune --force",
+    "build-handler": "docker buildx build --platform linux/arm64 -t jenkins-lambda/handler functions/handler/. && docker tag jenkins-lambda/handler 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler && docker image prune --force",
     "push-handler": "aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 671123374425.dkr.ecr.eu-central-1.amazonaws.com && docker push 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler",
     "deploy-handler": "sls deploy --service=handler --verbose",
     "remove-handler": "sls remove --service=handler --verbose",

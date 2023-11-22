@@ -7,7 +7,7 @@ FROM jenkins/jenkinsfile-runner:build-mvncache as jenkinsfilerunner-mvncache
 FROM maven:3.8.6-eclipse-temurin-11 as jenkinsfilerunner-build
 
 RUN apt-get update && apt-get install -y unzip git
-ENV MAVEN_OPTS=-Dmaven.repo.local=/mavenrepo
+ENV MAVEN_OPTS="-Dmaven.repo.local=/mavenrepo -Xmx4096m -Xms4096m"
 COPY --from=jenkinsfilerunner-mvncache /mavenrepo /mavenrepo
 
 RUN git clone https://github.com/jenkinsci/jenkinsfile-runner.git
@@ -38,7 +38,7 @@ FROM golang:${GOLANG_VERSION}-alpine3.18 as golang
 WORKDIR /build
 COPY go.mod go.sum ./
 COPY cmd/main.go ./
-RUN GOOS=linux go build -ldflags="-s -w" -o handler main.go
+RUN GOARCH=arm64 GOOS=linux go build -ldflags="-s -w" -o handler main.go
 
 
 FROM alpine:3.18.4

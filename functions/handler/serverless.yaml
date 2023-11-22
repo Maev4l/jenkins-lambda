@@ -28,7 +28,7 @@ functions:
     name: jenkins-lambda-handler
     image: 671123374425.dkr.ecr.eu-central-1.amazonaws.com/jenkins-lambda/handler:latest
     role: HandlerRole
-    architecture: x86_64
+    architecture: arm64
     memorySize: 2048
     timeout: 900
     events:
