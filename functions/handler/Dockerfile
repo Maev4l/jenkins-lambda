@@ -39,8 +39,8 @@ WORKDIR /build
 COPY go.mod go.sum ./
 # dependencies will be cached by Docker
 RUN go mod download 
-COPY cmd/main.go ./
-RUN GOARCH=arm64 GOOS=linux go build -ldflags="-s -w" -o handler main.go
+COPY cmd/main.go cmd/types.go ./
+RUN GOARCH=arm64 GOOS=linux go build -ldflags="-s -w" -o handler .
 
 
 FROM alpine:3.18.4
@@ -64,6 +64,8 @@ COPY --from=node /opt /opt
 ENV JAVA_OPTS "--illegal-access=permit $JAVA_OPTS"
 ENV JENKINS_UC https://updates.jenkins.io
 ENV CASC_JENKINS_CONFIG /usr/share/jenkins/ref/casc
+# the line below specify a writable folder for jgit (jenkins git plugin)
+ENV XDG_CONFIG_HOME /tmp
 
 # the line below is for the Jenkins workspace temp folder
 RUN mkdir -p /tmp/temp && chmod 777 /tmp/temp 

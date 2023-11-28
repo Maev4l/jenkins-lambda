@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-lambda-go v1.41.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tidwall/gjson v1.17.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
