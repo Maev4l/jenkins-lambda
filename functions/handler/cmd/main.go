@@ -71,11 +71,10 @@ func handleRequest(githubPayload string) error {
 }
 
 func gitClone(cloneUrl string, commit string) error {
-	_ = os.RemoveAll(WORKDIR)
 
-	err := os.Mkdir(WORKDIR, os.ModePerm)
+	err := createFolderIfNotExists(WORKDIR)
 	if err != nil {
-		return fmt.Errorf("failed to created dir: %s", WORKDIR)
+		return err
 	}
 
 	cmd := exec.Command("git", "clone", cloneUrl, WORKDIR)
@@ -95,14 +94,22 @@ func gitClone(cloneUrl string, commit string) error {
 	return nil
 }
 
+func createFolderIfNotExists(folder string) error {
+	_ = os.RemoveAll(folder)
+	err := os.Mkdir(folder, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("failed to created dir: %s", folder)
+	}
+	return nil
+}
+
 func runJenkinsFile() error {
 	// TODO: Investigate on how to add custom plugins and check if
 	// they have to be extracted into the /tmp/plugins folder
 
-	_ = os.RemoveAll(JENKINSHOMEDIR)
-	err := os.Mkdir(JENKINSHOMEDIR, os.ModePerm)
+	err := createFolderIfNotExists(JENKINSHOMEDIR)
 	if err != nil {
-		return fmt.Errorf("failed to created dir: %s", JENKINSHOMEDIR)
+		return err
 	}
 
 	cmd := exec.Command("jenkinsfile-runner",
