@@ -37,6 +37,8 @@ FROM node:${NODE_VERSION}-alpine3.18 as node
 FROM golang:${GOLANG_VERSION}-alpine3.18 as golang
 WORKDIR /build
 COPY go.mod go.sum ./
+# dependencies will be cached by Docker
+RUN go mod download 
 COPY cmd/main.go ./
 RUN GOARCH=arm64 GOOS=linux go build -ldflags="-s -w" -o handler main.go
 
